@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+xmltodict
+streamlit
+requests
+openai
+scikit-learn
+python-multipart

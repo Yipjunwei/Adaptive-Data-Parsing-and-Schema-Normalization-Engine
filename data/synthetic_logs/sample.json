@@ -1,0 +1,7 @@
+{
+  "event": "Vacuum pressure below threshold",
+  "TEMP": 86.5,
+  "Chamber": 1,
+  "Alarm": "102",
+  "tool": "ETCHER_A"
+}

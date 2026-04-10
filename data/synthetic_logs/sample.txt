@@ -1,0 +1,3 @@
+ALARM 102: Vacuum pressure low at chamber 3 TEMP=87.2 P=0.8
+TMP=85 P=0.9 ChamberX error
+VAC LOW at chamber 2, TEMP=91.4

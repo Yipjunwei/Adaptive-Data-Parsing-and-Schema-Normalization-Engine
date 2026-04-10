@@ -1,0 +1,6 @@
+<log>
+  <event>temperature high</event>
+  <temp>95.2</temp>
+  <chamber>4</chamber>
+  <error>201</error>
+</log>
