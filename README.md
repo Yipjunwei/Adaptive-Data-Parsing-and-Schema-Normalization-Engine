@@ -8,6 +8,7 @@ AI-assisted semiconductor log parsing and schema normalization prototype.
   - Structured logs (`JSON`, `XML`, `CSV`) parsed with code
   - Unstructured text logs parsed with regex + optional LLM hook
 - Semantic normalization and learned schema mapping (feedback loop)
+- Continuous memory-base learning from every ingestion (alias/event memory)
 - Human-readable explanation generation
 - SQLite persistence (default)
 - Optional anomaly detection (if `scikit-learn` is installed)
@@ -82,6 +83,7 @@ curl -X POST "http://127.0.0.1:8000/upload-log" \
 - `GET /logs/{log_id}`: fetch a specific stored entry
 - `POST /feedback`: add/update learned field mapping rule
 - `GET /schema-rules`: show learned mapping rules
+- `GET /memory`: inspect memory-base learning state (key memory + event memory)
 - `GET /stats`: ingestion and confidence summary
 - `GET /anomaly-check`: optional anomaly scoring over stored logs
 
@@ -95,6 +97,12 @@ curl -X POST "http://127.0.0.1:8000/upload-log" \
 - Low confidence results are flagged (`needs_review = true`).
 - User can submit feedback via `/feedback` to map `raw_key -> canonical_key`.
 - Future ingestions apply learned mapping automatically.
+
+## Memory-Base Learning (Always On)
+- Every uploaded log updates a memory store.
+- Key alias memory learns raw field names (example: `TMP`, `TempSensor`) and promotes stable mappings automatically after repeated confidence.
+- Event memory learns phrases and can recover event types for future similar logs.
+- Manual feedback rules still take priority over auto-promoted memory rules.
 
 ## Notes
 - This is a practical prototype aligned to the challenge scope.

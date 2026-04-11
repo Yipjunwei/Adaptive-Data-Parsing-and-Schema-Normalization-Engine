@@ -8,6 +8,8 @@ from app.anomaly import anomaly_score
 from app.db import (
     fetch_log,
     fetch_logs,
+    get_memory_snapshot,
+    get_promoted_memory_rules,
     get_schema_rules,
     get_stats,
     init_db,
@@ -16,6 +18,7 @@ from app.db import (
 )
 from app.detector import detect_format
 from app.explainer import explain_event
+from app.memory import learn_from_ingestion, recall_event
 from app.models import FeedbackRule
 from app.parser import parse_content
 from app.schema_mapper import normalize_payload
@@ -57,8 +60,18 @@ async def upload_log(
 
     detected_format = detect_format(content, filename)
     raw_payload = parse_content(content, detected_format)
-    rules = get_schema_rules()
+    memory_rules = get_promoted_memory_rules()
+    user_rules = get_schema_rules()
+    rules = memory_rules | user_rules
     normalized_payload, confidence = normalize_payload(raw_payload, rules, raw_text=content)
+
+    if normalized_payload.get("event_type") == "unknown_event":
+        remembered_event = recall_event(content)
+        if remembered_event:
+            normalized_payload["event_type"] = remembered_event
+            confidence = min(1.0, round(confidence + 0.08, 3))
+
+    learn_from_ingestion(raw_payload, normalized_payload, content)
 
     needs_review = confidence < 0.6
     explanation = explain_event(normalized_payload)
@@ -103,7 +116,15 @@ def submit_feedback(rule: FeedbackRule) -> dict[str, str]:
 
 @app.get("/schema-rules")
 def schema_rules() -> dict:
-    return {"rules": get_schema_rules()}
+    return {
+        "manual_rules": get_schema_rules(),
+        "memory_promoted_rules": get_promoted_memory_rules(),
+    }
+
+
+@app.get("/memory")
+def memory(limit: int = 50) -> dict:
+    return get_memory_snapshot(limit=limit)
 
 
 @app.get("/stats")
