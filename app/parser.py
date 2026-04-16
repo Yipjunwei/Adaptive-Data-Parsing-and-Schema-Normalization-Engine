@@ -36,24 +36,31 @@ def _parse_xml(content: str) -> dict[str, Any]:
     import xmltodict
 
     data = xmltodict.parse(content)
-    root = next(iter(data.values()), {})
+    root_key = next(iter(data.keys()))
+    root = data[root_key]
 
-    metadata = root.get("metadata", {})
-    system = root.get("system", {})
-    events = root.get("events", {}).get("event", [])
+    payload: dict[str, Any] = {}
 
-    if isinstance(events, dict):
-        events = [events]
+    if isinstance(root, dict):
+        metadata = root.get("metadata", {})
+        system = root.get("system", {})
+        events = root.get("events", {}).get("event", [])
 
-    primary_event = events[0] if events else {}
+        if isinstance(events, dict):
+            events = [events]
 
-    combined = {
-        "metadata": metadata,
-        "event": primary_event,
-        "system": system,
-    }
+        payload["metadata"] = metadata
+        payload["system"] = system
 
-    return _flatten_dict(combined)
+        # keep all events in explicit indexed form
+        if events:
+            payload["events"] = events
+        else:
+            payload["root"] = root
+    else:
+        payload["root"] = root
+
+    return _flatten_dict(payload)
 
 
 def _parse_csv(content: str) -> dict[str, Any]:
@@ -115,8 +122,9 @@ def _flatten_dict(data: Any, prefix: str = "") -> dict[str, Any]:
             out.update(_flatten_dict(value, next_prefix))
 
     elif isinstance(data, list):
-        if data:
-            out.update(_flatten_dict(data[0], prefix))
+        for i, item in enumerate(data):
+            next_prefix = f"{prefix}_{i}" if prefix else str(i)
+            out.update(_flatten_dict(item, next_prefix))
 
     else:
         out[prefix] = data
