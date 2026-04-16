@@ -4,30 +4,22 @@ from typing import Any
 
 from app.llm import explain_with_llm
 
+def basic_explanation(payload: dict) -> str:
+    event_type = payload.get("event_type", "unknown event")
+    severity = payload.get("severity", "unknown severity")
+    chamber = payload.get("chamber_id")
+    tool = payload.get("tool_id")
 
-def explain_event(payload: dict[str, Any]) -> str:
-    llm_explanation = explain_with_llm(payload)
-    if llm_explanation:
-        return llm_explanation
+    parts = [f"Detected {event_type} with severity {severity}."]
+    if chamber is not None:
+        parts.append(f"Affected chamber: {chamber}.")
+    if tool:
+        parts.append(f"Tool: {tool}.")
 
-    event = payload.get("event_type", "unknown event")
-    chamber = payload.get("chamber_id", "unknown")
-    severity = payload.get("severity", "medium")
-    temp = payload.get("temperature_c")
-    pressure = payload.get("vacuum_pressure")
+    return " ".join(parts)
 
-    clauses = [f"Detected {event} in chamber {chamber} with {severity} severity."]
-
-    if pressure is not None:
-        clauses.append(f"Observed vacuum pressure is {pressure}.")
-    if temp is not None:
-        clauses.append(f"Observed temperature is {temp}C.")
-
-    if event == "vacuum_fault":
-        clauses.append("Likely causes include leak, pump degradation, or valve instability.")
-    elif event == "thermal_fault":
-        clauses.append("Likely causes include cooling inefficiency, sensor drift, or process overload.")
-    else:
-        clauses.append("Further diagnostic context is recommended.")
-
-    return " ".join(clauses)
+def explain_event(payload: dict) -> str:
+    try:
+        return explain_with_llm(payload)
+    except Exception:
+        return basic_explanation(payload)

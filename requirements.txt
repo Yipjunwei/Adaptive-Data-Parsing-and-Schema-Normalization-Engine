@@ -4,6 +4,6 @@ pydantic
 xmltodict
 streamlit
 requests
-openai
 scikit-learn
 python-multipart
+google-generativeai

@@ -45,8 +45,11 @@ def root() -> dict[str, str]:
 
 @app.post("/upload-log")
 async def upload_log(
-    file: Annotated[UploadFile | None, File(default=None)] = None,
-    raw_text: Annotated[str | None, Form(default=None)] = None,
+    file: UploadFile | None = File(None),
+    raw_text: str | None = Form(None),
+    fields_of_interest: str | None = Form(None),
+    focus_section: str | None = Form(None),
+    parsing_goal: str | None = Form(None),
 ) -> dict:
     if file is None and (raw_text is None or not raw_text.strip()):
         raise HTTPException(status_code=400, detail="Provide either 'file' or non-empty 'raw_text'.")
@@ -58,13 +61,51 @@ async def upload_log(
         content = raw_text or ""
         filename = None
 
+    guidance = {
+        "fields_of_interest": fields_of_interest,
+        "focus_section": focus_section,
+        "parsing_goal": parsing_goal,
+    }
+
     detected_format = detect_format(content, filename)
-    raw_payload = parse_content(content, detected_format)
+    raw_payload = parse_content(content, detected_format, guidance=guidance)
+
     memory_rules = get_promoted_memory_rules()
     user_rules = get_schema_rules()
     rules = memory_rules | user_rules
+
     normalized_payload, confidence = normalize_payload(raw_payload, rules, raw_text=content)
 
+    should_refine = (
+        confidence < 0.65
+        or normalized_payload.get("event_type") == "unknown_event"
+        or guidance.get("fields_of_interest")
+        or guidance.get("focus_section")
+        or guidance.get("parsing_goal")
+        or any("_" in str(k) and len(str(k).split("_")) >= 3 for k in raw_payload.keys())
+    )
+
+    if should_refine:
+        try:
+            from app.llm import refine_with_llm
+
+            refined_payload = refine_with_llm(
+                raw_text=content,
+                raw_payload=raw_payload,
+                normalized_payload=normalized_payload,
+                guidance=guidance,
+            )
+
+            if isinstance(refined_payload, dict) and refined_payload:
+                normalized_payload, refined_confidence = normalize_payload(
+                    refined_payload,
+                    rules,
+                    raw_text=content,
+                )
+                confidence = max(confidence, min(0.95, refined_confidence + 0.1))
+        except Exception as e:
+            print(f"Gemini refinement failed: {e}")
+        
     if normalized_payload.get("event_type") == "unknown_event":
         remembered_event = recall_event(content)
         if remembered_event:
@@ -87,6 +128,7 @@ async def upload_log(
     return {
         "log_id": log_id,
         "format_detected": detected_format,
+        "guidance": guidance,
         "raw_payload": raw_payload,
         "normalized_payload": normalized_payload,
         "confidence": confidence,

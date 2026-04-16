@@ -1,6 +1,37 @@
-<log>
-  <event>temperature high</event>
-  <temp>95.2</temp>
-  <chamber>4</chamber>
-  <error>201</error>
-</log>
+<tool_log>
+  <metadata>
+    <toolId>ETCH-AX12</toolId>
+    <timestamp>2026-04-16T14:23:51Z</timestamp>
+    <operator>auto-system</operator>
+  </metadata>
+
+  <events>
+    <event>
+      <type>ALARM</type>
+      <msg>Vacuum pressure low</msg>
+      <chamberID>3</chamberID>
+      <pressure unit="Pa">0.8</pressure>
+      <severityLevel>HIGH</severityLevel>
+      <code>V-102</code>
+    </event>
+
+    <event>
+      <type>WARNING</type>
+      <description>Temperature rising rapidly</description>
+      <chamber>3</chamber>
+      <tempC>91.7</tempC>
+    </event>
+
+    <event>
+      <type>ERROR</type>
+      <msg>Sensor failure detected</msg>
+      <sensor_id>S-88</sensor_id>
+      <error_code>5001</error_code>
+    </event>
+  </events>
+
+  <system>
+    <uptime>128392</uptime>
+    <status>degraded</status>
+  </system>
+</tool_log>

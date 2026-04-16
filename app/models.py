@@ -27,3 +27,7 @@ class StoredLog(BaseModel):
     payload: dict[str, Any]
     explanation: str
     created_at: str
+class ParseGuidance(BaseModel):
+    fields_of_interest: str | None = None
+    focus_section: str | None = None
+    parsing_goal: str | None = None
