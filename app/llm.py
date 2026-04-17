@@ -5,6 +5,8 @@ from typing import Any
 import google.generativeai as genai
 
 
+
+
 CANONICAL_FIELDS = [
     "timestamp",
     "tool_id",
@@ -26,7 +28,7 @@ def _get_model():
         raise RuntimeError("GEMINI_API_KEY is not set.")
 
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
+    return genai.GenerativeModel("models/gemini-2.5-flash-lite")
 
 
 def _extract_text(response: Any) -> str:
