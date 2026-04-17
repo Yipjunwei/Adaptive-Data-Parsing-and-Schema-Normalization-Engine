@@ -132,7 +132,7 @@
   },
   {
     "profile_id": "profile_4",
-    "fingerprint": "xml|event_error_code|event_message|event_severity|event_status|metadata_chamber_id|metadata_timestamp|metadata_tool_id|metadata_vendor|system_pressure_pa|system_rf_power_w|system_temperature_c",
+    "fingerprint": "xml|event_chamberid|event_code|event_msg|event_pressure_text|event_pressure_unit|event_severitylevel|event_type|metadata_operator|metadata_timestamp|metadata_toolid|system_status|system_uptime",
     "format_detected": "xml",
     "vendor_label": null,
     "decoder_name": null,
@@ -161,9 +161,9 @@
       "system_uptime"
     ],
     "structure_traits": {
-      "key_count": 11,
-      "nested_key_count": 11,
-      "max_depth": 4,
+      "key_count": 12,
+      "nested_key_count": 12,
+      "max_depth": 3,
       "has_events_branch": true,
       "has_metadata_branch": true,
       "has_system_branch": true,
@@ -174,8 +174,8 @@
       "event_type": "event_type",
       "event_msg": "event_type",
       "event_chamberid": "event_type",
-      "event_pressure_unit": "event_type",
-      "event_pressure_text": "event_type",
+      "event_pressure_unit": "pressure_pa",
+      "event_pressure_text": "pressure_pa",
       "event_severitylevel": "event_type",
       "event_code": "error_code",
       "system_status": "status",
@@ -190,9 +190,9 @@
     },
     "preferred_focus_section": null,
     "preferred_event_type": "vacuum_fault",
-    "confidence_avg": 0.992,
-    "successful_parses": 4,
-    "gemini_uses": 1,
+    "confidence_avg": 0.953,
+    "successful_parses": 5,
+    "gemini_uses": 2,
     "last_summary": "Critical vacuum failure in Chamber 3 (V-102); pressure dropped to 0.8 Pa, triggering high-severity alarm."
   },
   {
@@ -328,9 +328,9 @@
       "process_pressure_mtorr": "pressure_pa"
     },
     "preferred_focus_section": null,
-    "preferred_event_type": "process_event",
-    "confidence_avg": 0.98,
-    "successful_parses": 2,
+    "preferred_event_type": "thermal_fault",
+    "confidence_avg": 0.919,
+    "successful_parses": 3,
     "gemini_uses": 1,
     "last_summary": "Process aborted on PM_B due to RF reflected power trip (112W). Impedance mismatch likely; check RF match network."
   },
