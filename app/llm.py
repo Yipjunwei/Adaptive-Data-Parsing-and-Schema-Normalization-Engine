@@ -1,11 +1,10 @@
+from __future__ import annotations
+
 import json
 import os
 from typing import Any
 
 import google.generativeai as genai
-
-
-
 
 CANONICAL_FIELDS = [
     "timestamp",
@@ -26,9 +25,10 @@ def _get_model():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set.")
-
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("models/gemini-2.5-flash-lite")
+    
+    # return genai.GenerativeModel("gemini-2.5-flash-lite") // 2.5 got limit 20 requests per day
+    return genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 
 
 def _extract_text(response: Any) -> str:
@@ -49,7 +49,12 @@ def _clean_json_text(text: str) -> str:
     return text
 
 
-def parse_unstructured_with_llm(raw_text: str, guidance: dict | None = None) -> dict:
+def parse_and_explain(
+    raw_text: str,
+    guidance: dict | None = None,
+    initial_payload: dict | None = None,
+    detected_format: str | None = None,
+) -> dict:
     model = _get_model()
 
     guidance_text = ""
@@ -61,25 +66,47 @@ Guidance:
 - parsing_goal: {guidance.get("parsing_goal")}
 """
 
+    initial_payload_text = json.dumps(initial_payload or {}, ensure_ascii=False)
+
     prompt = f"""
 You are an AI parser for semiconductor tool logs.
 
-Extract structured information from the raw log below.
+Your task:
+1. extract the most important structured information from the log
+2. if multiple events exist, choose the primary event
+3. provide a short engineer-friendly summary
 
-Return ONLY valid JSON.
-Do not include markdown fences.
-Do not explain anything.
-
-Use this schema when possible:
-{json.dumps(CANONICAL_FIELDS)}
+Return ONLY valid JSON with this shape:
+{{
+  "payload": {{
+    "timestamp": "...",
+    "tool_id": "...",
+    "chamber_id": 0,
+    "temperature_c": 0,
+    "pressure_pa": 0,
+    "error_code": "...",
+    "severity": "...",
+    "raw_message": "...",
+    "event_type": "...",
+    "sensor_id": "...",
+    "status": "..."
+  }},
+  "summary": "short explanation"
+}}
 
 Rules:
-- If a field is not found, omit it.
-- Prefer canonical field names.
-- Infer event_type if possible.
-- Infer severity if possible.
-- Keep the most important / primary event if multiple are implied.
+- Use canonical field names where possible.
+- Omit fields that cannot be inferred.
+- Prioritize the most critical event if there are multiple events.
+- Ignore irrelevant metadata unless useful.
+- Preserve real timestamps over counters/uptime values.
+- Return only JSON, no markdown, no commentary.
+
+Format detected: {detected_format}
 {guidance_text}
+
+Initial extracted payload:
+{initial_payload_text}
 
 Raw log:
 {raw_text}
@@ -89,12 +116,12 @@ Raw log:
     text = _clean_json_text(_extract_text(response))
 
     if not text:
-        raise ValueError("Gemini returned an empty response.")
+        raise ValueError("Gemini returned empty parse_and_explain response.")
 
     return json.loads(text)
 
 
-def refine_with_llm(
+def refine_payload(
     raw_text: str,
     raw_payload: dict,
     normalized_payload: dict,
@@ -114,38 +141,28 @@ Guidance:
     prompt = f"""
 You are refining a parsed semiconductor tool log.
 
-You are given:
-1. Raw log text
-2. Initial extracted payload
-3. Initial normalized payload
-4. Optional engineer guidance
-
-Your task:
-- identify the primary event if multiple events exist
-- map unknown or messy fields into canonical fields
-- keep only the most relevant structured information
-- prefer this canonical schema:
-{json.dumps(CANONICAL_FIELDS)}
-
 Return ONLY valid JSON.
-Do not include markdown fences.
 Do not explain anything.
 
+Use only these canonical fields where possible:
+{json.dumps(CANONICAL_FIELDS)}
+
 Rules:
-- If multiple events exist, prioritize the most critical event.
-- Ignore irrelevant metadata unless useful.
-- Preserve true timestamps over counters/uptime values.
-- If unsure, keep the most likely interpretation.
+- Keep the primary event only.
+- Improve field mapping from ambiguous keys.
+- Ignore irrelevant metadata.
+- Preserve true timestamps over uptime/counters.
+- Use guidance if provided.
 
 {guidance_text}
 
 Raw log:
 {raw_text}
 
-Initial raw payload:
+Raw payload:
 {json.dumps(raw_payload, ensure_ascii=False)}
 
-Initial normalized payload:
+Current normalized payload:
 {json.dumps(normalized_payload, ensure_ascii=False)}
 """
 
@@ -153,20 +170,19 @@ Initial normalized payload:
     text = _clean_json_text(_extract_text(response))
 
     if not text:
-        raise ValueError("Gemini returned an empty refinement.")
+        raise ValueError("Gemini returned empty refine_payload response.")
 
     return json.loads(text)
 
 
-def explain_with_llm(payload: dict) -> str:
+def explain_payload(payload: dict) -> str:
     model = _get_model()
 
     prompt = f"""
 You are an engineer-friendly AI assistant for semiconductor tool logs.
 
-Given this structured event payload, write a short explanation in plain English.
-Keep it concise, clear, and practical.
-Mention likely issue and why it matters if possible.
+Given this structured payload, write a short explanation in plain English.
+Be concise, practical, and mention likely issue and impact if possible.
 
 Payload:
 {json.dumps(payload, ensure_ascii=False)}
@@ -176,6 +192,18 @@ Payload:
     text = _extract_text(response)
 
     if not text:
-        raise ValueError("Gemini returned an empty explanation.")
+        raise ValueError("Gemini returned empty explanation.")
 
     return text
+
+
+# compatibility helpers for older modules
+def parse_unstructured_with_llm(raw_text: str, guidance: dict | None = None) -> dict:
+    result = parse_and_explain(raw_text=raw_text, guidance=guidance)
+    if isinstance(result, dict) and isinstance(result.get("payload"), dict):
+        return result["payload"]
+    return {}
+
+
+def explain_with_llm(payload: dict) -> str:
+    return explain_payload(payload)

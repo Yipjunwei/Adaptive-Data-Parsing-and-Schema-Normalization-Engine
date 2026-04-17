@@ -5,6 +5,7 @@ from app.parsers.csv_parser import CSVParser
 from app.parsers.json_parser import JSONParser
 from app.parsers.text_parser import TextParser
 from app.parsers.xml_parser import XMLParser
+from app.parsers.binary_parser import BinaryParser
 
 
 class ParserFactory:
@@ -18,4 +19,6 @@ class ParserFactory:
             return XMLParser()
         if format_type == "csv":
             return CSVParser()
+        if format_type == "bin":
+            return BinaryParser()
         return TextParser()

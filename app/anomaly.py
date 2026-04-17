@@ -10,7 +10,7 @@ def anomaly_score(logs: list[dict[str, Any]]) -> dict[str, Any]:
     for log in logs:
         payload = log.get("payload", {})
         temp = float(payload.get("temperature_c", 0) or 0)
-        pressure = float(payload.get("vacuum_pressure", 0) or 0)
+        pressure = float(payload.get("pressure_pa", 0) or 0)
         sev = payload.get("severity", "medium")
         sev_num = {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(str(sev).lower(), 1)
         features.append([temp, pressure, sev_num])

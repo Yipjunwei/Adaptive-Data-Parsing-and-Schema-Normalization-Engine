@@ -13,6 +13,8 @@ def detect_format(content: str, filename: Optional[str] = None) -> str:
             return "xml"
         if lower.endswith(".csv"):
             return "csv"
+        if lower.endswith(".bin"):
+            return "bin"
         if lower.endswith(".txt") or lower.endswith(".log"):
             return "text"
 

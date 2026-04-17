@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.llm import parse_unstructured_with_llm
 from app.parsers.base import BaseParser
 
 KV_PATTERN = re.compile(r"([A-Za-z][A-Za-z0-9_]*)\s*=\s*([\w\.-]+)")
@@ -33,14 +32,12 @@ class TextParser(BaseParser):
             elif "temp" in lower or "heat" in lower:
                 extracted["event_type"] = "temperature high"
 
-        should_use_llm = (
-            not extracted
-            or guidance is not None
-            or len(extracted) <= 1
-        )
-
-        if should_use_llm:
+        # Only fall back to LLM if nothing at all was extracted AND
+        # an explicit parsing_goal was provided in guidance.
+        # The main pipeline (main.py) handles all other LLM enrichment.
+        if not extracted and guidance and guidance.get("parsing_goal"):
             try:
+                from app.llm import parse_unstructured_with_llm
                 llm_data = parse_unstructured_with_llm(content, guidance=guidance)
                 if llm_data:
                     return {str(k): v for k, v in llm_data.items()}
