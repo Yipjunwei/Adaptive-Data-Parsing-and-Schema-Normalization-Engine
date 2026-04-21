@@ -236,9 +236,9 @@
     },
     "preferred_focus_section": null,
     "preferred_event_type": "error",
-    "confidence_avg": 0.947,
-    "successful_parses": 3,
-    "gemini_uses": 1,
+    "confidence_avg": 0.909,
+    "successful_parses": 4,
+    "gemini_uses": 2,
     "last_summary": "Chamber 2 reported error 301 at 89.4C and 0.95Pa."
   },
   {
@@ -369,9 +369,9 @@
     },
     "preferred_focus_section": null,
     "preferred_event_type": null,
-    "confidence_avg": 0.9,
-    "successful_parses": 1,
-    "gemini_uses": 1,
+    "confidence_avg": 0.846,
+    "successful_parses": 2,
+    "gemini_uses": 2,
     "last_summary": "Implant scan IMP-8847 failed due to dose deviation (1.18E+15 achieved vs 1.20E+15 target) with fault code 0x00A2."
   },
   {

@@ -7,3 +7,6 @@ requests
 scikit-learn
 python-multipart
 google-generativeai
+reportlab
+plotly
+pandas

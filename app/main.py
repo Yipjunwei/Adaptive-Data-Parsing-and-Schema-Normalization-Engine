@@ -1,5 +1,6 @@
 """
 Adaptive Tool Log Intelligence Pipeline — FastAPI entry point.
+Updated with equipment dashboard helpers and PDF report generation.
 """
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.anomaly import anomaly_score
 from app.db import (
@@ -21,22 +23,25 @@ from app.db import (
     upsert_schema_rule,
 )
 from app.detector import detect_format
+from app.analysis_modules.health import build_fault_timeline, compute_health_summary, filter_logs_for_tool
 from app.llm import explain_payload, parse_and_explain
 from app.memory import learn_from_ingestion, recall_event
 from app.models import FeedbackRule
 from app.parser import parse_content
 from app.profiles import (
+    build_profile_guidance,
     init_profiles,
     list_profiles,
     lookup_profile,
     promote_profile,
-    build_profile_guidance,
 )
+from app.analysis_modules.reporting import build_health_report_pdf
+from app.analysis_modules.root_cause import suggest_root_cause
 from app.schema_mapper import assess_payload, normalize_payload
 
 app = FastAPI(
     title="Adaptive Tool Log Intelligence Pipeline",
-    version="0.3.0",
+    version="0.4.0",
     description=(
         "Ingest semiconductor tool logs, detect format, parse payloads, "
         "normalize schema, generate engineer-friendly explanations, "
@@ -53,21 +58,15 @@ def on_startup() -> None:
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "Adaptive Tool Log Intelligence Pipeline v0.3.0 is running."}
+    return {"message": "Adaptive Tool Log Intelligence Pipeline v0.4.0 is running."}
 
 
 def _decode_upload(file_bytes: bytes, filename: str | None) -> tuple[str | bytes, str, str | None]:
-    """
-    Returns:
-      content_for_parser: str | bytes
-      raw_text_for_llm: str
-      detected_format: str
-    """
     detected_format = detect_format("", filename)
 
     if detected_format == "bin":
         content_for_parser = file_bytes
-        raw_text_for_llm = file_bytes.hex()  # safe text fallback for downstream components
+        raw_text_for_llm = file_bytes.hex()
     else:
         text = file_bytes.decode("utf-8", errors="ignore")
         content_for_parser = text
@@ -88,9 +87,6 @@ async def upload_log(
     if file is None and (raw_text is None or not raw_text.strip()):
         raise HTTPException(status_code=400, detail="Provide either 'file' or non-empty 'raw_text'.")
 
-    # ------------------------------------------------------------------
-    # 1. Read content safely
-    # ------------------------------------------------------------------
     if file is not None:
         file_bytes = await file.read()
         filename = file.filename
@@ -101,9 +97,6 @@ async def upload_log(
         content = raw_text_for_llm
         detected_format = detect_format(raw_text_for_llm, filename)
 
-    # ------------------------------------------------------------------
-    # 2. Base guidance
-    # ------------------------------------------------------------------
     guidance: dict[str, Any] = {
         "fields_of_interest": fields_of_interest or None,
         "focus_section": focus_section or None,
@@ -116,23 +109,14 @@ async def upload_log(
     human_summary = ""
     source_status = "new_source"
 
-    # ------------------------------------------------------------------
-    # 3. Initial raw parse (no LLM — pure structural extraction)
-    # ------------------------------------------------------------------
     raw_payload = parse_content(content, detected_format, guidance=None)
 
-    # ------------------------------------------------------------------
-    # 4. Look up vendor/source profile
-    # ------------------------------------------------------------------
     profile = lookup_profile(
         format_detected=detected_format,
         raw_payload=raw_payload,
         vendor_label=vendor_label,
     )
 
-    # ------------------------------------------------------------------
-    # 5. Re-parse with profile guidance if a known profile was found
-    # ------------------------------------------------------------------
     if profile:
         profile_guidance = build_profile_guidance(profile)
         merged_guidance = {**guidance, **profile_guidance}
@@ -141,18 +125,12 @@ async def upload_log(
             raw_payload = reparsed
         source_status = "known_profile"
 
-    # ------------------------------------------------------------------
-    # 6. Normalize (rules + alias mapping + event/severity inference)
-    # ------------------------------------------------------------------
     normalized_payload, confidence, assessment = normalize_payload(
         raw_payload,
         rules,
         raw_text=raw_text_for_llm,
     )
 
-    # ------------------------------------------------------------------
-    # 7. Apply profile enrichments (key map + event hint + confidence boost)
-    # ------------------------------------------------------------------
     if profile:
         for raw_k, canonical_k in profile.key_map.items():
             if raw_k in raw_payload and canonical_k not in normalized_payload:
@@ -172,10 +150,6 @@ async def upload_log(
         )
         confidence = assessment["confidence"]
 
-    # ------------------------------------------------------------------
-    # 8. LLM enrichment — only for unknown sources or genuinely low confidence
-    #    (at most ONE Gemini call per request)
-    # ------------------------------------------------------------------
     llm_reasons: list[str] = []
     if not profile:
         llm_reasons.append("new_source")
@@ -206,7 +180,6 @@ async def upload_log(
             llm_payload = llm_result.get("payload", {})
             llm_summary = llm_result.get("summary", "")
 
-            # Merge LLM fields — only fill gaps, never overwrite good values
             for k, v in llm_payload.items():
                 if v is not None and (k not in normalized_payload or normalized_payload[k] is None):
                     normalized_payload[k] = v
@@ -232,11 +205,8 @@ async def upload_log(
             )
             confidence = min(0.95, assessment["confidence"])
         except Exception:
-            pass  # LLM failure is non-fatal; pipeline continues with what we have
+            pass
 
-    # ------------------------------------------------------------------
-    # 9. Memory fallback for event_type
-    # ------------------------------------------------------------------
     if normalized_payload.get("event_type") == "unknown_event":
         remembered = recall_event(raw_text_for_llm)
         if remembered:
@@ -249,25 +219,10 @@ async def upload_log(
             )
             confidence = assessment["confidence"]
 
-    # ------------------------------------------------------------------
-    # 10. Generate explanation — only if LLM wasn't already used above
-    # ------------------------------------------------------------------
     if not human_summary:
-        if llm_used:
-            # LLM was called but returned no summary — use basic fallback (no extra call)
-            from app.explainer import basic_explanation
-            human_summary = basic_explanation(normalized_payload)
-        else:
-            # Profile hit but no cached summary — generate once and it will be cached on promote
-            try:
-                human_summary = explain_payload(normalized_payload)
-            except Exception:
-                from app.explainer import basic_explanation
-                human_summary = basic_explanation(normalized_payload)
+        from app.explainer import basic_explanation
+        human_summary = basic_explanation(normalized_payload)
 
-    # ------------------------------------------------------------------
-    # 11. Learn from ingestion
-    # ------------------------------------------------------------------
     learn_from_ingestion(raw_payload, normalized_payload, raw_text_for_llm)
 
     promoted = promote_profile(
@@ -291,6 +246,7 @@ async def upload_log(
         explanation=human_summary,
     )
 
+
     return {
         "log_id": log_id,
         "format_detected": detected_format,
@@ -307,15 +263,9 @@ async def upload_log(
         "missing_critical_fields": assessment.get("missing_critical_fields", []),
         "consistency_issues": assessment.get("consistency_issues", []),
         "llm_reasons": llm_reasons,
-        "needs_review": needs_review,
+        "needs_review": needs_review
     }
 
-
-
-
-# ---------------------------------------------------------------------------
-# Standard endpoints
-# ---------------------------------------------------------------------------
 
 @app.get("/logs")
 def list_logs(limit: int = 100) -> dict[str, Any]:
@@ -363,3 +313,63 @@ def stats() -> dict[str, Any]:
 def anomaly_check() -> dict[str, Any]:
     logs = fetch_logs(limit=500)
     return anomaly_score(logs)
+
+
+@app.get("/dashboard/summary")
+def dashboard_summary(tool_id: str, limit: int = 500) -> dict[str, Any]:
+    logs = fetch_logs(limit=limit)
+    tool_logs = filter_logs_for_tool(logs, tool_id)
+    if not tool_logs:
+        raise HTTPException(status_code=404, detail=f"No logs found for tool '{tool_id}'")
+
+    summary = compute_health_summary(tool_logs)
+    timeline = build_fault_timeline(tool_logs)
+    latest_payload = (summary.get("latest_event") or {}).get("payload", {})
+    root_cause = suggest_root_cause(latest_payload, latest_context=(summary.get("latest_event") or {}).get("explanation"), use_llm=True)
+
+    return {
+        "tool_id": tool_id,
+        "summary": summary,
+        "timeline": timeline,
+        "latest_payload": latest_payload,
+        "root_cause": root_cause,
+    }
+
+
+@app.get("/tools")
+def list_tools(limit: int = 500) -> dict[str, Any]:
+    logs = fetch_logs(limit=limit)
+    tools = sorted({str((log.get("payload", {}) or {}).get("tool_id", "")).strip() for log in logs if (log.get("payload", {}) or {}).get("tool_id")})
+    return {"items": tools}
+
+
+@app.get("/reports/tool-health")
+def download_tool_health_report(tool_id: str, limit: int = 500) -> FileResponse:
+    logs = fetch_logs(limit=limit)
+    tool_logs = filter_logs_for_tool(logs, tool_id)
+    if not tool_logs:
+        raise HTTPException(status_code=404, detail=f"No logs found for tool '{tool_id}'")
+
+    summary = compute_health_summary(tool_logs)
+    latest_event = summary.get("latest_event") or {}
+    payload = latest_event.get("payload", {})
+
+    root_cause = suggest_root_cause(payload)   # LLM only here if needed
+
+    pdf_bytes = build_health_report_pdf(
+        tool_id=tool_id,
+        summary=summary,
+        latest_payload=payload,
+        root_cause=root_cause,
+    )
+
+    out_dir = Path("generated_reports")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"tool_health_{tool_id}.pdf"
+    out_path.write_bytes(pdf_bytes)
+
+    return FileResponse(
+        path=str(out_path),
+        media_type="application/pdf",
+        filename=out_path.name,
+    )
